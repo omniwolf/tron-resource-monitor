@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRON Address Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@1.0.0/dist/chartjs-plugin-zoom.min.js"></script>
+
+    <style>
+    body {
+        font-family: Arial, sans-serif;
+    }
+
+    #data {
+        margin-top: 20px;
+        font-size: 1.2em;
+    }
+
+    /* Ensuring the chart canvas takes the required space for scrolling */
+    #energyChart, #bandwidthChart {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    /* Chart container styles for horizontal scrolling */
+    .chart-container {
+        margin-top: 20px;
+        width: 100%;
+        overflow-x: auto;  /* Enable horizontal scrolling */
+        white-space: nowrap; /* Prevent wrapping and allow horizontal scrolling */
+    }
+
+    /* Canvas styles - make it grow with data */
+    canvas {
+        width: auto;  /* Let the canvas take its full width based on data */
+        height: 300px; /* Set a fixed height for the charts */
+        max-width: none; /* Prevent the canvas from shrinking */
+    }
+
+    /* Table styling */
+    table {
+        width: 100%;
+        margin-top: 20px;
+        border-collapse: collapse;
+    }
+
+    table, th, td {
+        border: 1px solid #ddd;
+    }
+
+    th, td {
+        padding: 8px 12px;
+        text-align: center;
+    }
+
+    th {
+        background-color: #f2f2f2;
+    }
+
+    /* Info icon styling */
+    .info-icon {
+        cursor: pointer;
+        margin-left: 5px;
+        color: #007bff;
+        font-size: 16px;
+    }
+
+    /* Tooltip styling */
+    .tooltip {
+        display: none;
+        background-color: #f9f9f9;
+        border: 1px solid #ccc;
+        padding: 5px;
+        position: absolute;
+        z-index: 1000;
+        box-shadow: 0px 0px 6px rgba(0,0,0,0.1);
+    }
+
+    th:hover .tooltip {
+        display: block;
+    }
+
+    /* Progress bar container at the top */
+    #progressBarContainer {
+        width: 100%;
+        height: 3px;
+        background-color: #e0e0e0;
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1000;
+    }
+
+    /* The actual progress bar */
+    #progressBar {
+        height: 100%;
+        background-color: #4caf50; /* Green color for the bar */
+        width: 0%; /* Start at 0% */
+    }
+</style>
+
+</head>
+<body>
+    <div id="progressBarContainer">
+        <div id="progressBar"></div>
+    </div>
+    <h1>TRON Address Monitor</h1>
+    <p>
+        Address: <input type="text" id="address" value="YOUR_TRON_ADDRESS" placeholder="Enter TRON address">
+        <button onclick="fetchData()">Submit</button>
+    </p>
+
+
+    <!-- Table to display energy and bandwidth data -->
+    <table>
+        <thead>
+            <tr>
+                <th></th>
+                <th>Remaining</th>
+                <th>Regen per 30 secs <span class="info-icon">ℹ️
+                    <span class="tooltip">Value in brackets is the theoretical value assuming we recover 100% of the staked value over 24 hours</span>
+                </span></th>
+                <th>Time to regen 1 tx <span class="info-icon">ℹ️
+                    <span class="tooltip">Based off the last 30 seconds, we assume we need 130,285 energy and 345 bandwidth</span>
+                </span></th>
+                <th>Regen per day <span class="info-icon">ℹ️
+                    <span class="tooltip">Value in brackets is the theoretical value assuming we recover 100% of the staked value over 24 hours</span>
+                </span></th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Energy</strong></td>
+                <td id="energyRemaining">Loading...</td>
+                <td id="energyPer30">Loading...</td>
+                <td id="timeToRegen1_energy">Loading...</td>
+                <td id="energyPerDay">Loading...</td>
+            </tr>
+            <tr>
+                <td><strong>Bandwidth</strong></td>
+                <td id="bandwidthRemaining">Loading...</td>
+                <td id="bandwidthPer30">Loading...</td>
+                <td id="timeToRegen1_bandwidth">Loading...</td>
+                <td id="bandwidthPerDay">Loading...</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="chart-container">
+        <div>
+            <h2>Available energy (over time)</h2>
+            <canvas id="energyChart"></canvas>
+        </div>
+
+        <div>
+            <h2>Available bandwidth (over time)</h2>
+            <canvas id="bandwidthChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        let energyHistory = [];
+        let bandwidthHistory = [];
+        let timestamps = [];
+
+        // Variables for chart instances
+        let energyChart = null;
+        let bandwidthChart = null;
+
+        let lastEnergyUsage = 0;
+        let lastBandwidthUsage = 0;
+
+        let progressBarInterval;
+
+        // Maximum number of data points to display at any time
+        const MAX_DATA_POINTS = 4000;
+
+        // Simulate 1000 data points over a short period of time
+        /*for (let i = 0; i < 1000; i++) {
+            timestamps.push(i * 30); // Simulate every 30 seconds for simplicity
+            energyHistory.push(Math.floor(Math.random() * 200000)); // Random energy values
+            bandwidthHistory.push(Math.floor(Math.random() * 200)); // Random bandwidth values
+        }*/
+
+        // Function to fetch energy and bandwidth data for a TRON address
+        async function fetchData() {
+
+            startProgressBar();
+
+            const address = document.getElementById("address").value;
+            const url = `https://api.trongrid.io/v1/accounts/${address}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                // Log the full response to check the data structure
+                console.log("API Response:", data);
+
+                // Check if the data is available and access the correct fields
+                if (data.data && data.data.length > 0) {
+                    
+                    // first let's figure out the total energy and bandwidth available
+                    const totalEnergyStaked = data.data[0].account_resource.acquired_delegated_frozenV2_balance_for_energy / 1000000 * 10.4894;  // 10.4894 seems to be the conversion rate of TRX to energy
+                    const totalBandwidthStaked = (data.data[0].acquired_delegated_frozenV2_balance_for_bandwidth	/ 1000000 * 1.6305) + 600;  // 1.6305 seems to be the conversion rate of TRX to bandwidth.  Each account gets 600 free bandwidth
+
+                    // Accessing the correct fields for energy and bandwidth
+                    const energyUsage = totalEnergyStaked - data.data[0].account_resource.energy_usage; // in energy units
+                    const bandwidthUsage = totalBandwidthStaked - data.data[0].net_usage - data.data[0].free_net_usage; // in bandwidth units
+
+                    // Format the energyUsage and bandwidthUsage with comma-separated thousands
+                    const formattedEnergyUsage = Number(energyUsage.toFixed(0)).toLocaleString();
+                    const formattedBandwidthUsage = Number(bandwidthUsage.toFixed(0)).toLocaleString();
+
+                    const theoreticalEnergyPer30 = totalEnergyStaked / 2880;
+                    const theoreticalBandwidthPer30 = totalBandwidthStaked / 2880;
+
+                    const remainingEnergyPercent = (energyUsage / totalEnergyStaked * 100).toFixed(0);
+                    const remainingBandwidthPercent = (bandwidthUsage / totalBandwidthStaked * 100).toFixed(0);
+
+                    // Update the page with formatted data (in energy and bandwidth units)
+                    document.getElementById("energyRemaining").textContent = formattedEnergyUsage + " (" + remainingEnergyPercent + "%)" || "No energy data";
+                    document.getElementById("bandwidthRemaining").textContent = formattedBandwidthUsage + " (" + remainingBandwidthPercent + "%)" || "No bandwidth data";
+
+                    // Calculate per 30 seconds and per day
+                    const energyPer30 = energyUsage - lastEnergyUsage;
+                    const bandwidthPer30 = bandwidthUsage - lastBandwidthUsage;
+
+                    document.getElementById("energyPer30").textContent = energyPer30.toLocaleString() + " (" + Number(theoreticalEnergyPer30.toFixed(0)).toLocaleString() + ")";
+                    document.getElementById("bandwidthPer30").textContent = bandwidthPer30.toLocaleString() + " (" + Number(theoreticalBandwidthPer30.toFixed(2)).toLocaleString() + ")";
+
+                    // calculate how long (at this rate) it will take to regen for 1 USDT transfer (assuming max energy)
+                    let timeToRegenEnergy = 130285 / energyPer30 * 30 / 60;  // in minutes
+                    let timeToRegenBandwidth = 345 / bandwidthPer30 * 30 / 60;
+
+                    if (timeToRegenEnergy > 60) {
+                        timeToRegenEnergy = (timeToRegenEnergy / 60).toFixed(1).toString()  + " hours";
+                    }
+                    else {
+                        timeToRegenEnergy = timeToRegenEnergy.toFixed(1).toString() + " mins";
+                    }
+
+                    if (timeToRegenBandwidth > 60) {
+                        timeToRegenBandwidth = (timeToRegenBandwidth / 60).toFixed(1).toString()  + " hours";
+                    }
+                    else {
+                        timeToRegenBandwidth = timeToRegenBandwidth.toFixed(1).toString()  + " mins";
+                    }
+
+                    document.getElementById("timeToRegen1_energy").textContent = timeToRegenEnergy;
+                    document.getElementById("timeToRegen1_bandwidth").textContent = timeToRegenBandwidth;
+
+                    // Calculate per day (assuming 2880 30-second intervals per day)
+                    const energyPerDay = energyPer30 * 2880;
+                    const bandwidthPerDay = bandwidthPer30 * 2880;
+
+                    document.getElementById("energyPerDay").textContent = energyPerDay.toLocaleString() + " (" + Number(totalEnergyStaked.toFixed(0)).toLocaleString() + ")";
+                    document.getElementById("bandwidthPerDay").textContent = bandwidthPerDay.toLocaleString() + " (" + Number(totalBandwidthStaked.toFixed(0)).toLocaleString() + ")";
+
+                    // Store the values in arrays for graphing
+                    const currentTimestamp = new Date().toLocaleTimeString();
+                    timestamps.push(currentTimestamp);
+                    energyHistory.push(energyUsage);
+                    bandwidthHistory.push(bandwidthUsage);
+
+                    if (timestamps.length > MAX_DATA_POINTS) {
+                        timestamps.shift(); // Remove the oldest timestamp
+                        energyHistory.shift(); // Remove the oldest energy value
+                        bandwidthHistory.shift();
+                    }
+
+                    // Update graphs
+                    updateGraphs();
+
+                    // Store current usage for next comparison
+                    lastEnergyUsage = energyUsage;
+                    lastBandwidthUsage = bandwidthUsage;
+                } else {
+                    // Handle the case where no data is returned for the address
+                    document.getElementById("energyRemaining").textContent = "No data available";
+                    document.getElementById("bandwidthRemaining").textContent = "No data available";
+                }
+            } catch (error) {
+                console.error("Error fetching data:", error);
+                document.getElementById("energyRemaining").textContent = "Error fetching data";
+                document.getElementById("bandwidthRemaining").textContent = "Error fetching data";
+            }
+        }
+
+        function startProgressBar() {
+            const progressBar = document.getElementById('progressBar');
+            let width = 0;
+
+            // Clear any existing interval to prevent multiple progress bars running at once
+            if (progressBarInterval) {
+                clearInterval(progressBarInterval);
+            }
+
+            // Reset the progress bar before starting
+            progressBar.style.width = '0%';
+
+            // Increment the width every 100ms to fill the bar over 30 seconds
+            progressBarInterval = setInterval(() => {
+                width += 0.16666666667;
+                progressBar.style.width = width + '%';
+
+                if (width >= 100) {
+                    clearInterval(progressBarInterval);  // Stop the interval when the bar reaches 100%
+                    //fetchData();  // Trigger data fetching after 30 seconds
+                    //startProgressBar();  // Start the progress bar again for the next 30 seconds
+                }
+            }, 47);  // technically 50ms is the correct value, but there's lag in the browser, so we have to speed it up
+        }
+
+        // Set the function to run every 30 seconds
+        setInterval(fetchData, 30000);
+
+        // Fetch initial data when the page loads
+        window.onload = fetchData;
+        //window.onload = startProgressBar;
+
+        function getEnergyPointColor(value, type) {
+
+            //console.log("Raw value:", value + ", type: "  + type);
+            if (value > 130285) {
+                return 'rgba(75, 192, 192, 0.6)';  // Blue-green for high energy
+            } else if (value >= 64285 && value <= 130285) {
+                return 'rgba(255, 159, 64, 0.6)';  // Amber for medium energy
+            } else {
+                return 'rgba(255, 99, 132, 0.6)';  // Red for low energy
+                //return 'rgba(75, 192, 192, 0.6)';
+            }
+        }
+        function getBandwidthPointColor(value, type) {
+            //console.log("Bandwidth raw value:", value + ", type: "  + type);
+
+            if (value > 345) {  // 345 is a basic bandwidth cost for a USDT transfer
+                return 'rgba(153, 102, 255, 1)';  // purple 
+            } else {
+                return 'rgba(255, 99, 132, 0.6)';  // Red
+            }
+        }
+
+        // Function to update graphs with the current data
+        function updateGraphs() {
+            // Energy Chart
+            if (energyChart) {
+                energyChart.destroy(); // Destroy the previous chart if it exists
+            }
+
+            //const energyVal = context.naw;
+
+            const energyCtx = document.getElementById('energyChart').getContext('2d');
+            energyChart = new Chart(energyCtx, {
+                type: 'line',
+                data: {
+                    labels: timestamps,
+                    datasets: [{
+                        label: 'Energy remaining',
+                        data: energyHistory,
+                        borderColor: 'rgba(75, 192, 192, 0.2)',  // unfortunately the line and fill colour can't seem to be changed per plot (at least not in the same way we can change the point)
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        pointBackgroundColor: (context) => getEnergyPointColor(context.raw, "pointBackgroundColor"),
+                        pointBorderColor: (context) => getEnergyPointColor(context.raw, "pointBorderColor"),
+                        pointRadius: 2,                     
+                        fill: true,
+                        lineTension: 0.2
+                    }]
+                },
+                options: {
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            position: 'bottom',
+                            min: Math.min(...timestamps), // Starting point for the X-axis (could be your first timestamp)
+                            max: Math.max(...timestamps), // Ending point for the X-axis (could be your last timestamp)
+                            ticks: {
+                                autoSkip: true,
+                                maxRotation: 90,
+                                minRotation: 45
+                            }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            min: Math.min(...energyHistory) - Math.min(...energyHistory) * 0.1,
+                            max: Math.max(...energyHistory) + Math.max(...energyHistory) * 0.1,
+                            ticks: {
+                                padding: 10 // Add some padding between the ticks and the chart edge
+                            }
+                        }
+                    },
+                    plugins: {
+                        zoom: {
+                            enabled: true,
+                            mode: 'x', // Enable horizontal scrolling (panning)
+                            speed: 0.1, // Speed of panning
+                            threshold: 10, // Minimum movement to start panning
+                            stepSize: Math.ceil(timestamps.length / 10),  // Adjust the number of ticks (step size)
+                        }
+                    }   
+                }
+            });
+
+            energyChart.update();
+
+            // Bandwidth Chart
+            if (bandwidthChart) {
+                bandwidthChart.destroy(); // Destroy the previous chart if it exists
+            }
+
+            const bandwidthCtx = document.getElementById('bandwidthChart').getContext('2d');
+            bandwidthChart = new Chart(bandwidthCtx, {
+                type: 'line',
+                data: {
+                    labels: timestamps,
+                    datasets: [{
+                        label: 'Bandwidth remaining',
+                        data: bandwidthHistory,
+                        borderColor: 'rgba(153, 102, 255, 0.2)',
+                        backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                        pointBackgroundColor: (context) => getBandwidthPointColor(context.raw, "pointBackgroundColor"),
+                        pointBorderColor: (context) => getBandwidthPointColor(context.raw, "pointBorderColor"),
+                        pointRadius: 2,
+                        fill: true,
+                        lineTension: 0.2
+                    }]
+                },
+                options: {
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            position: 'bottom',
+                            min: Math.min(...timestamps), // Starting point for the X-axis (could be your first timestamp)
+                            max: Math.max(...timestamps), // Ending point for the X-axis (could be your last timestamp)
+                            ticks: {
+                                autoSkip: true,
+                                maxRotation: 90,
+                                minRotation: 45
+                            }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            min: Math.min(...bandwidthHistory) - Math.min(...bandwidthHistory) * 0.1,
+                            max: Math.max(...bandwidthHistory) + Math.max(...bandwidthHistory) * 0.1,
+                            ticks: {
+                                padding: 10 // Add some padding between the ticks and the chart edge
+                            }
+                        }
+                    },
+                    plugins: {
+                        zoom: {
+                            enabled: true,
+                            mode: 'x', // Enable horizontal scrolling (panning)
+                            speed: 0.1, // Speed of panning
+                            threshold: 10, // Minimum movement to start panning
+                            stepSize: Math.ceil(timestamps.length / 10),  // Adjust the number of ticks (step size)
+                        }
+                    }
+                }
+            });
+            bandwidthChart.update();
+        }
+    </script>
+</body>
+</html>
