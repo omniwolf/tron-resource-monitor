@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRON Address Monitor</title>
+    <title>TRON Address Monitor v1</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@1.0.0/dist/chartjs-plugin-zoom.min.js"></script>
 
@@ -320,10 +320,14 @@
         }
 
         // Set the function to run every 30 seconds
-        setInterval(fetchData, 30000);
+        setInterval(function() {
+            fetchData(false)
+        }, 30000);
 
         // Fetch initial data when the page loads
-        window.onload = fetchData;
+        window.onload = function() {
+            fetchData(false);
+        };
         //window.onload = startProgressBar;
 
         function getEnergyPointColor(value, type) {
