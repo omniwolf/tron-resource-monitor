@@ -108,7 +108,7 @@
     <h1>TRON Address Monitor</h1>
     <p>
         Address: <input type="text" id="address" value="TRoeSzTEW9NSRRLrMSNKXd5EzYpSvDmFE1" placeholder="Enter TRON address">
-        <button onclick="fetchData()">Submit</button>
+        <button onclick="fetchData(true)">Submit</button>
     </p>
 
 
@@ -184,7 +184,13 @@
         }*/
 
         // Function to fetch energy and bandwidth data for a TRON address
-        async function fetchData() {
+        async function fetchData(startFresh) {
+
+            if (startFresh) {  // we have probably changed the address that we're moonitoring, so clear any current data points
+                let energyHistory = [];
+                let bandwidthHistory = [];
+                let timestamps = [];
+            }
 
             startProgressBar();
 
