@@ -187,9 +187,9 @@
         async function fetchData(startFresh) {
 
             if (startFresh) {  // we have probably changed the address that we're moonitoring, so clear any current data points
-                let energyHistory = [];
-                let bandwidthHistory = [];
-                let timestamps = [];
+                energyHistory = [];
+                bandwidthHistory = [];
+                timestamps = [];
             }
 
             startProgressBar();
