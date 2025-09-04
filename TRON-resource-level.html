@@ -98,6 +98,40 @@
         background-color: #4caf50; /* Green color for the bar */
         width: 0%; /* Start at 0% */
     }
+
+    /* TRX Price table styling */
+    .trx-price-table {
+        margin-bottom: 20px;
+        font-size: 0.9em;
+    }
+
+    .trx-price-table th {
+        background-color: #f8f9fa;
+        font-weight: bold;
+        padding: 8px 12px;
+        text-align: center;
+        border: 1px solid #dee2e6;
+    }
+
+    .trx-price-table td {
+        padding: 8px 12px;
+        text-align: center;
+        border: 1px solid #dee2e6;
+        font-weight: 500;
+    }
+
+    .trx-price-table tr:hover {
+        background-color: #f8f9fa;
+    }
+
+    /* Input styling for TRX amount */
+    #amountSpentInput {
+        padding: 4px 8px;
+        margin: 0 5px;
+        border: 1px solid #ccc;
+        border-radius: 3px;
+        width: 120px;
+    }
 </style>
 
 </head>
@@ -109,8 +143,31 @@
     <p>
         Address: <input type="text" id="address" value="TRoeSzTEW9NSRRLrMSNKXd5EzYpSvDmFE1" placeholder="Enter TRON address">
         <button onclick="fetchData(true)">Submit</button>
+        &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;
+        TRX holdings: <input type="number" id="trxAmountInput" value="547989.43538" step="0.01" placeholder="Amount of TRX">
+        Purchase price (AUD): <input type="number" id="purchasePriceInput" value="0.456212" step="0.0001" placeholder="Price per TRX">
+        <button onclick="updateTRXCalculations()">Update</button>
     </p>
 
+    <!-- TRX Price Information Table -->
+    <table class="trx-price-table">
+        <thead>
+            <tr>
+                <th>Current TRX Price (AUD)</th>
+                <th>Amount Spent on TRX (AUD)</th>
+                <th>Current Value (AUD)</th>
+                <th>% Change</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td id="currentTRXPrice">Loading...</td>
+                <td id="amountSpent">$0.00</td>
+                <td id="currentValue">$0.00</td>
+                <td id="percentChange">0.00%</td>
+            </tr>
+        </tbody>
+    </table>
 
     <!-- Table to display energy and bandwidth data -->
     <table>
@@ -173,6 +230,9 @@
 
         let progressBarInterval;
 
+        // TRX price tracking variables
+        let currentTRXPrice = 0;
+
         // Maximum number of data points to display at any time
         const MAX_DATA_POINTS = 4000;
 
@@ -182,6 +242,69 @@
             energyHistory.push(Math.floor(Math.random() * 200000)); // Random energy values
             bandwidthHistory.push(Math.floor(Math.random() * 200)); // Random bandwidth values
         }*/
+
+        // Function to fetch TRX price from CoinGecko API (CORS-friendly)
+        async function fetchTRXPrice() {
+            try {
+                // Using CoinGecko API which supports CORS
+                const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=tron&vs_currencies=aud');
+                const data = await response.json();
+                
+                currentTRXPrice = data.tron.aud;
+                document.getElementById('currentTRXPrice').textContent = `$${currentTRXPrice.toFixed(4)} AUD`;
+                
+                // Update calculations if TRX holdings are set
+                const trxAmount = parseFloat(document.getElementById('trxAmountInput').value) || 0;
+                const purchasePrice = parseFloat(document.getElementById('purchasePriceInput').value) || 0;
+                if (trxAmount > 0 && purchasePrice > 0) {
+                    updateTRXCalculations();
+                }
+                
+                return currentTRXPrice;
+            } catch (error) {
+                console.error('Error fetching TRX price:', error);
+                document.getElementById('currentTRXPrice').textContent = 'Price unavailable';
+                return 0;
+            }
+        }
+
+        // Function to update TRX calculations
+        function updateTRXCalculations() {
+            const trxAmount = parseFloat(document.getElementById('trxAmountInput').value) || 0;
+            const purchasePrice = parseFloat(document.getElementById('purchasePriceInput').value) || 0;
+            
+            if (trxAmount > 0 && purchasePrice > 0 && currentTRXPrice > 0) {
+                // Calculate original amount spent
+                const originalAmountSpent = trxAmount * purchasePrice;
+                
+                // Calculate current value
+                const currentValue = trxAmount * currentTRXPrice;
+                
+                // Calculate percentage change
+                const percentChange = ((currentValue - originalAmountSpent) / originalAmountSpent) * 100;
+                
+                document.getElementById('amountSpent').textContent = `$${Number(originalAmountSpent.toFixed(2)).toLocaleString()}`;
+                document.getElementById('currentValue').textContent = `$${Number(currentValue.toFixed(2)).toLocaleString()}`;
+                document.getElementById('percentChange').textContent = `${percentChange.toFixed(2)}%`;
+                
+                // Add color coding for gains/losses
+                const percentElement = document.getElementById('percentChange');
+                if (percentChange > 0) {
+                    percentElement.style.color = '#28a745'; // Green for gains
+                    document.getElementById('percentChange').textContent += "⬆️";
+                } else if (percentChange < 0) {
+                    percentElement.style.color = '#dc3545'; // Red for losses
+                    document.getElementById('percentChange').textContent += "⬇️";
+                } else {
+                    percentElement.style.color = '#000000'; // Black for no change
+                }
+            } else {
+                document.getElementById('amountSpent').textContent = '$0.00';
+                document.getElementById('currentValue').textContent = '$0.00';
+                document.getElementById('percentChange').textContent = '0.00%';
+                document.getElementById('percentChange').style.color = '#000000';
+            }
+        }
 
         // Function to fetch energy and bandwidth data for a TRON address
         async function fetchData(startFresh) {
@@ -321,12 +444,14 @@
 
         // Set the function to run every 30 seconds
         setInterval(function() {
-            fetchData(false)
+            fetchData(false);
+            fetchTRXPrice();
         }, 30000);
 
         // Fetch initial data when the page loads
         window.onload = function() {
             fetchData(false);
+            fetchTRXPrice();
         };
         //window.onload = startProgressBar;
 
