@@ -141,7 +141,7 @@
     </div>
     <h1>TRON Address Monitor v1.1</h1>
     <p>
-        Address: <input type="text" id="address" value="TRoeSzTEW9NSRRLrMSNKXd5EzYpSvDmFE1" placeholder="Enter TRON address">
+        Address: <input type="text" id="address" value="TXwGH9UE7Z3zJVnmTKrKoT4DobUytUvJW7" placeholder="Enter TRON address">
         <button onclick="fetchData(true)">Submit</button>
         &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;
         TRX holdings: <input type="number" id="trxAmountInput" value="547989.43538" step="0.01" placeholder="Amount of TRX">
@@ -225,8 +225,8 @@
         let energyChart = null;
         let bandwidthChart = null;
 
-        let lastEnergyUsage = 0;
-        let lastBandwidthUsage = 0;
+        let lastEnergyRemaining = 0;
+        let lastBandwidthRemaining = 0;
 
         let progressBarInterval;
 
@@ -321,100 +321,160 @@
             const url = `https://api.trongrid.io/v1/accounts/${address}`;
 
             try {
-                const response = await fetch(url);
-                const data = await response.json();
 
-                // Log the full response to check the data structure
-                console.log("API Response:", data);
+                const accountResources = await getAccountResource(address);
 
-                // Check if the data is available and access the correct fields
-                if (data.data && data.data.length > 0) {
-                    
+                // first let's figure out the total energy and bandwidth available
+                let totalEnergyStaked;
+                let totalBandwidthStaked;  // freeNetLimit is usually the free 600 bandwidth each address gets
+
+                let energyRemaining;
+                let bandwidthRemaining;  // i think i have been assuming "usage" is remaining this whole time?? need to check below
+
+                if (accountResources.hasOwnProperty("EnergyLimit") &&
+                    accountResources.hasOwnProperty("NetLimit") &&
+                    accountResources.hasOwnProperty("freeNetLimit") &&
+                    accountResources.hasOwnProperty("EnergyUsed") &&
+                    accountResources.hasOwnProperty("NetUsed")
+                ) {
                     // first let's figure out the total energy and bandwidth available
-                    const totalEnergyStaked = data.data[0].account_resource.acquired_delegated_frozenV2_balance_for_energy / 1000000 * 10.4894;  // 10.4894 seems to be the conversion rate of TRX to energy
-                    const totalBandwidthStaked = (data.data[0].acquired_delegated_frozenV2_balance_for_bandwidth	/ 1000000 * 1.6305) + 600;  // 1.6305 seems to be the conversion rate of TRX to bandwidth.  Each account gets 600 free bandwidth
+                    totalEnergyStaked = accountResources.EnergyLimit;
+                    totalBandwidthStaked = accountResources.NetLimit + accountResources.freeNetLimit;  // freeNetLimit is usually the free 600 bandwidth each address gets
 
-                    // Accessing the correct fields for energy and bandwidth
-                    const energyUsage = totalEnergyStaked - data.data[0].account_resource.energy_usage; // in energy units
-                    const bandwidthUsage = totalBandwidthStaked - data.data[0].net_usage - data.data[0].free_net_usage; // in bandwidth units
-
-                    // Format the energyUsage and bandwidthUsage with comma-separated thousands
-                    const formattedEnergyUsage = Number(energyUsage.toFixed(0)).toLocaleString();
-                    const formattedBandwidthUsage = Number(bandwidthUsage.toFixed(0)).toLocaleString();
-
-                    const theoreticalEnergyPer30 = totalEnergyStaked / 2880;
-                    const theoreticalBandwidthPer30 = totalBandwidthStaked / 2880;
-
-                    const remainingEnergyPercent = (energyUsage / totalEnergyStaked * 100).toFixed(0);
-                    const remainingBandwidthPercent = (bandwidthUsage / totalBandwidthStaked * 100).toFixed(0);
-
-                    // Update the page with formatted data (in energy and bandwidth units)
-                    document.getElementById("energyRemaining").textContent = formattedEnergyUsage + " (" + remainingEnergyPercent + "%)" || "No energy data";
-                    document.getElementById("bandwidthRemaining").textContent = formattedBandwidthUsage + " (" + remainingBandwidthPercent + "%)" || "No bandwidth data";
-
-                    // Calculate per 30 seconds and per day
-                    const energyPer30 = energyUsage - lastEnergyUsage;
-                    const bandwidthPer30 = bandwidthUsage - lastBandwidthUsage;
-
-                    document.getElementById("energyPer30").textContent = energyPer30.toLocaleString() + " (" + Number(theoreticalEnergyPer30.toFixed(0)).toLocaleString() + ")";
-                    document.getElementById("bandwidthPer30").textContent = bandwidthPer30.toLocaleString() + " (" + Number(theoreticalBandwidthPer30.toFixed(2)).toLocaleString() + ")";
-
-                    // calculate how long (at this rate) it will take to regen for 1 USDT transfer (assuming max energy)
-                    let timeToRegenEnergy = 130285 / energyPer30 * 30 / 60;  // in minutes
-                    let timeToRegenBandwidth = 345 / bandwidthPer30 * 30 / 60;
-
-                    if (timeToRegenEnergy > 60) {
-                        timeToRegenEnergy = (timeToRegenEnergy / 60).toFixed(1).toString()  + " hours";
-                    }
-                    else {
-                        timeToRegenEnergy = timeToRegenEnergy.toFixed(1).toString() + " mins";
-                    }
-
-                    if (timeToRegenBandwidth > 60) {
-                        timeToRegenBandwidth = (timeToRegenBandwidth / 60).toFixed(1).toString()  + " hours";
-                    }
-                    else {
-                        timeToRegenBandwidth = timeToRegenBandwidth.toFixed(1).toString()  + " mins";
-                    }
-
-                    document.getElementById("timeToRegen1_energy").textContent = timeToRegenEnergy;
-                    document.getElementById("timeToRegen1_bandwidth").textContent = timeToRegenBandwidth;
-
-                    // Calculate per day (assuming 2880 30-second intervals per day)
-                    const energyPerDay = energyPer30 * 2880;
-                    const bandwidthPerDay = bandwidthPer30 * 2880;
-
-                    document.getElementById("energyPerDay").textContent = energyPerDay.toLocaleString() + " (" + Number(totalEnergyStaked.toFixed(0)).toLocaleString() + ")";
-                    document.getElementById("bandwidthPerDay").textContent = bandwidthPerDay.toLocaleString() + " (" + Number(totalBandwidthStaked.toFixed(0)).toLocaleString() + ")";
-
-                    // Store the values in arrays for graphing
-                    const currentTimestamp = new Date().toLocaleTimeString();
-                    timestamps.push(currentTimestamp);
-                    energyHistory.push(energyUsage);
-                    bandwidthHistory.push(bandwidthUsage);
-
-                    if (timestamps.length > MAX_DATA_POINTS) {
-                        timestamps.shift(); // Remove the oldest timestamp
-                        energyHistory.shift(); // Remove the oldest energy value
-                        bandwidthHistory.shift();
-                    }
-
-                    // Update graphs
-                    updateGraphs();
-
-                    // Store current usage for next comparison
-                    lastEnergyUsage = energyUsage;
-                    lastBandwidthUsage = bandwidthUsage;
-                } else {
-                    // Handle the case where no data is returned for the address
-                    document.getElementById("energyRemaining").textContent = "No data available";
-                    document.getElementById("bandwidthRemaining").textContent = "No data available";
+                    energyRemaining = totalEnergyStaked - accountResources.EnergyUsed;
+                    bandwidthRemaining = totalBandwidthStaked - accountResources.NetUsed;  // i think i have been assuming "usage" is remaining this whole time?? need to check below
                 }
+                else {  // sometimes the /getaccountresources doesn't return all the info?? so we calculate it ourselves.  ACTUALLY - i think it only doesn't show the details when you have an address with no energy/bandwidth staked.. so all this else code is for nothing, as neither end point will show it
+                    let bandwidthTRXconversionRate = 1.62;  // rough default conversion
+                    let energyTRXconversionRate = 10;  // rough default rate
+
+                    // if we have the data from /getaccountresource, we can use it to calculate the real conversion ratios
+                    if (accountResources.hasOwnProperty("TotalEnergyLimit") &&
+                        accountResources.hasOwnProperty("TotalEnergyWeight") &&
+                        accountResources.hasOwnProperty("TotalNetLimit") &&
+                        accountResources.hasOwnProperty("TotalNetWeight")
+                    ) {
+                        bandwidthTRXconversionRate = accountResources.TotalNetLimit / accountResources.TotalNetWeight;
+                        energyTRXconversionRate = accountResources.TotalEnergyLimit / accountResources.TotalEnergyWeight;
+                    }
+                    else {
+                        throw new Error("TronGrid /getaccountresource doesn't have TotalENergyLimit, TotalEnergyWeight, TotalNetLimet, and/or TotalNetWeight??");
+                    }
+
+                    // now we pull the /accounts end point
+                    const response = await fetch(url);
+                    const data = await response.json();
+
+                    if (data.data && data.data.length > 0) {
+
+                        totalEnergyStaked = data.data[0].account_resource.acquired_delegated_frozenV2_balance_for_energy / 1000000 * energyTRXconversionRate;
+                        totalBandwidthStaked = (data.data[0].acquired_delegated_frozenV2_balance_for_bandwidth	/ 1000000 * bandwidthTRXconversionRate) + 600;  // Each account gets 600 free bandwidth
+
+                        // Accessing the correct fields for energy and bandwidth
+                        energyRemaining = totalEnergyStaked - data.data[0].account_resource.energy_usage; // in energy units
+                        bandwidthRemaining = totalBandwidthStaked - data.data[0].net_usage - data.data[0].free_net_usage; // in bandwidth units
+
+                        // Log the full response to check the data structure
+                        console.log("API /accounts response:", data);
+                    }
+                    else {
+                        throw new Error("TronGrid /accounts response doesnt' have what we need...");
+                    }
+                }
+
+                // Format the energyUsage and bandwidthUsage with comma-separated thousands
+                const formattedEnergyRemaining = Number(energyRemaining.toFixed(0)).toLocaleString();
+                const formattedBandwidthRemaining = Number(bandwidthRemaining.toFixed(0)).toLocaleString();
+
+                const theoreticalEnergyPer30 = totalEnergyStaked / 2880;
+                const theoreticalBandwidthPer30 = totalBandwidthStaked / 2880;
+
+                const remainingEnergyPercent = (energyRemaining / totalEnergyStaked * 100).toFixed(0);
+                const remainingBandwidthPercent = (bandwidthRemaining / totalBandwidthStaked * 100).toFixed(0);
+
+                // Update the page with formatted data (in energy and bandwidth units)
+                document.getElementById("energyRemaining").textContent = formattedEnergyRemaining + " (" + remainingEnergyPercent + "%)" || "No energy data";
+                document.getElementById("bandwidthRemaining").textContent = formattedBandwidthRemaining + " (" + remainingBandwidthPercent + "%)" || "No bandwidth data";
+
+                // Calculate per 30 seconds and per day
+                const energyPer30 = energyRemaining - lastEnergyRemaining;
+                const bandwidthPer30 = bandwidthRemaining - lastBandwidthRemaining;
+
+                document.getElementById("energyPer30").textContent = energyPer30.toLocaleString() + " (" + Number(theoreticalEnergyPer30.toFixed(0)).toLocaleString() + ")";
+                document.getElementById("bandwidthPer30").textContent = bandwidthPer30.toLocaleString() + " (" + Number(theoreticalBandwidthPer30.toFixed(2)).toLocaleString() + ")";
+
+                // calculate how long (at this rate) it will take to regen for 1 USDT transfer (assuming max energy)
+                let timeToRegenEnergy = 130285 / energyPer30 * 30 / 60;  // in minutes
+                let timeToRegenBandwidth = 345 / bandwidthPer30 * 30 / 60;
+
+                if (timeToRegenEnergy > 60) {
+                    timeToRegenEnergy = (timeToRegenEnergy / 60).toFixed(1).toString()  + " hours";
+                }
+                else {
+                    timeToRegenEnergy = timeToRegenEnergy.toFixed(1).toString() + " mins";
+                }
+
+                if (timeToRegenBandwidth > 60) {
+                    timeToRegenBandwidth = (timeToRegenBandwidth / 60).toFixed(1).toString()  + " hours";
+                }
+                else {
+                    timeToRegenBandwidth = timeToRegenBandwidth.toFixed(1).toString()  + " mins";
+                }
+
+                document.getElementById("timeToRegen1_energy").textContent = timeToRegenEnergy;
+                document.getElementById("timeToRegen1_bandwidth").textContent = timeToRegenBandwidth;
+
+                // Calculate per day (assuming 2880 30-second intervals per day)
+                const energyPerDay = energyPer30 * 2880;
+                const bandwidthPerDay = bandwidthPer30 * 2880;
+
+                document.getElementById("energyPerDay").textContent = energyPerDay.toLocaleString() + " (" + Number(totalEnergyStaked.toFixed(0)).toLocaleString() + ")";
+                document.getElementById("bandwidthPerDay").textContent = bandwidthPerDay.toLocaleString() + " (" + Number(totalBandwidthStaked.toFixed(0)).toLocaleString() + ")";
+
+                // Store the values in arrays for graphing
+                const currentTimestamp = new Date().toLocaleTimeString();
+                timestamps.push(currentTimestamp);
+                energyHistory.push(energyRemaining);
+                bandwidthHistory.push(bandwidthRemaining);
+
+                if (timestamps.length > MAX_DATA_POINTS) {
+                    timestamps.shift(); // Remove the oldest timestamp
+                    energyHistory.shift(); // Remove the oldest energy value
+                    bandwidthHistory.shift();
+                }
+
+                // Update graphs
+                updateGraphs();
+
+                // Store current usage for next comparison
+                lastEnergyRemaining = energyRemaining;
+                lastBandwidthRemaining = bandwidthRemaining;
+
             } catch (error) {
                 console.error("Error fetching data:", error);
                 document.getElementById("energyRemaining").textContent = "Error fetching data";
                 document.getElementById("bandwidthRemaining").textContent = "Error fetching data";
             }
+        }
+
+        async function getAccountResource(address, apiKey) {
+            const res = await fetch("https://api.trongrid.io/wallet/getaccountresource", {
+                method: 'POST',
+                headers: {
+                'Content-Type': 'application/json',
+                ...(apiKey ? { 'TRON-PRO-API-KEY': apiKey } : {})
+                },
+                body: JSON.stringify({
+                address,
+                visible: true
+                })
+            });
+
+            if (!res.ok) {
+                throw new Error(`TronGrid /getaccountresource error ${res.status}: ${await res.text()}`);
+            }
+
+            return res.json();
         }
 
         function startProgressBar() {
@@ -431,7 +491,7 @@
 
             // Increment the width every 100ms to fill the bar over 30 seconds
             progressBarInterval = setInterval(() => {
-                width += 0.16666666667;
+                width += 0.16666666667;  // this is 100% divided by 600 (how many ticks we have in 30 seconds)
                 progressBar.style.width = width + '%';
 
                 if (width >= 100) {
@@ -439,7 +499,7 @@
                     //fetchData();  // Trigger data fetching after 30 seconds
                     //startProgressBar();  // Start the progress bar again for the next 30 seconds
                 }
-            }, 47);  // technically 50ms is the correct value, but there's lag in the browser, so we have to speed it up
+            }, 45.3);  // technically 50ms is the correct value, but there's lag in the browser, so we have to speed it up.  The lower this number, the more of the progress bar will get filled in 30 seconds
         }
 
         // Set the function to run every 30 seconds
